@@ -49,6 +49,6 @@ for i in range(1000):
         ax.imshow(pred_img)
         ax.set_title('iter %d, dist %.3f' % (i, dist.view(-1).data.cpu().numpy()[0]))
         plt.pause(5e-2)
-        # plt.imsave('imgs_saved/%04d.jpg'%i,pred_img)
+        plt.imsave('imgs_saved/%04d.jpg'%i,pred_img)
 
 

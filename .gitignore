@@ -1,3 +1,6 @@
 *.pyc
 
 checkpoints/*
+
+dataset/
+imgs_saved/
