@@ -8,6 +8,8 @@ import torch
 from torch.autograd import Variable
 import models
 import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
+from PIL import Image
 
 
 """
@@ -17,24 +19,49 @@ Keep img_a fixed and max d(img_a, img_x) subject to ||a - x||^2 < EPSILON
 
 use_gpu = True
 
-img_path  = './imgs/ex_ref.png'
+img_path  = './dataset/2afc/val/cnn/ref/000002.png'
 
-img_x = scipy.misc.imread(img_path).transpose(2, 0, 1) / 255.
-img_a = scipy.misc.imread(img_path).transpose(2, 0, 1) / 255.
+transform_list = [
+    transforms.Scale(64),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+]
+transform = transforms.Compose(transform_list)
+
+img_x = Image.open(img_path).convert('RGB')
+img_x = transform(img_x)
+
+img_a = Image.open(img_path).convert('RGB')
+img_a = transform(img_a)
 
 # Torchify
 EPSILON = 5.0
 print(EPSILON)
 
-img_a = Variable(torch.FloatTensor(img_a)[None,:,:,:], requires_grad=False)
-img_x = Variable(
-    torch.FloatTensor(img_x)[None,:,:,:] + \
-    (torch.rand_like(torch.FloatTensor(img_x)[None,:,:,:]) - 0.5) * 1e-5, 
-    requires_grad=True
-)
+print(img_x.shape)
+print(img_a.shape)
 
-loss_fn = models.PerceptualLoss(model='net-lin', net='vgg', use_gpu=use_gpu)
-optimizer = torch.optim.SGD([img_x], lr=1e-2, momentum=0.9, nesterov=True)
+img_a = Variable(
+    torch.FloatTensor(img_a)[None,:,:,:] + \
+    (torch.rand_like(torch.FloatTensor(img_x)[None,:,:,:]) - 0.5) * 1e-6, 
+    requires_grad=False
+)
+img_x = Variable(torch.FloatTensor(img_x)[None,:,:,:], requires_grad=True)
+print(img_x.shape)
+print(img_a.shape)
+
+print("Initial difference between img_a and img_x = ", torch.sum((img_a - img_x) ** 2))
+
+
+num_iterations = 10000
+loss_fn = models.PerceptualLoss(model='net-lin', net='vgg', use_gpu=use_gpu, version="0.1")
+# optimizer = torch.optim.SGD([img_x], lr=1e-2, momentum=0.9, nesterov=False)
+optimizer = torch.optim.Adam([img_x], lr=1e-2)
+# scheduler = torch.optim.lr_scheduler.MultiStepLR(
+#     optimizer,
+#     [5000],
+#     gamma=0.1
+# )
 
 plt.ion()
 # fig = plt.figure(1)
@@ -46,15 +73,16 @@ plt.ion()
 # ax.set_title('initialization')
 
 def main():
-    for i in range(10000):
+    for i in range(num_iterations):
         dist = -1 * loss_fn.forward(img_x, img_a, normalize=True)
         optimizer.zero_grad()
         dist.backward()
         optimizer.step()
+        # scheduler.step()
         img_x.data = tensor_clamp_l2(img_x.data, img_a.data, EPSILON)
         
         if i % 100 == 0:
-            print('iter %d, dist %.3g' % (i, dist.view(-1).data.cpu().numpy()[0]))
+            print('iter %d, dist %f' % (i, dist.view(-1).data.cpu().numpy()[0]))
             pred_img = img_x[0].data.cpu().numpy().transpose(1, 2, 0)
             pred_img = np.clip(pred_img, 0, 1)
             # ax = fig.add_subplot(132)            
