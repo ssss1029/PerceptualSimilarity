@@ -16,6 +16,8 @@ import functools
 import skimage.transform
 from tqdm import tqdm
 
+from torchvision.utils import save_image
+
 from IPython import embed
 
 from . import networks_basic as networks
@@ -27,7 +29,8 @@ class DistModel(BaseModel):
 
     def initialize(self, model='net-lin', net='alex', colorspace='Lab', pnet_rand=False, pnet_tune=False, model_path=None,
             use_gpu=True, printNet=False, spatial=False, 
-            is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0]):
+            is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0], 
+            adversarially_train=False, num_adv_iterations=201, adv_epsilon=10):
         '''
         INPUTS
             model - ['net-lin'] for linearly calibrated network
@@ -57,6 +60,16 @@ class DistModel(BaseModel):
         self.spatial = spatial
         self.gpu_ids = gpu_ids
         self.model_name = '%s [%s]'%(model,net)
+
+        self.adv_train = adversarially_train
+        self.num_adv_iterations = num_adv_iterations
+        self.adv_epsilon = adv_epsilon
+
+        self.adversary = PGD_l2(
+            epsilon=adv_epsilon,
+            num_steps=num_adv_iterations,
+            step_size=1e-2
+        )
 
         if(self.model == 'net-lin'): # pretrained net + linear layer
             self.net = networks.PNetLin(pnet_rand=pnet_rand, pnet_tune=pnet_tune, pnet_type=net,
@@ -145,6 +158,53 @@ class DistModel(BaseModel):
         self.var_p0 = Variable(self.input_p0,requires_grad=True)
         self.var_p1 = Variable(self.input_p1,requires_grad=True)
 
+    def generate_adv_example(self, image):
+        image_copy = image.clone()
+        img_a = Variable(
+            image + ((torch.rand_like(image) - 0.5) * 1e-4),
+            requires_grad=False
+        )
+        img_x = Variable(image, requires_grad=True)
+        # save_image(img_x, "/home/saurav/PerceptualSimilarity/img_x_{0}.png".format(0))
+        print("Initial ||img_x - img_a||^2  = ", torch.sum((img_a - img_x) ** 2).item())
+        adv_optimizer = torch.optim.Adam([img_x], lr=1e-2)
+        for i in range(self.num_adv_iterations):
+            dist = self.forward(img_x, img_a)
+            dist = -1.0 * torch.mean(dist)
+            # if i % 100 == 0 and i != 0:
+            #     save_image(img_x, "/home/saurav/PerceptualSimilarity/img_x_{0}.png".format(i))
+            #     print(dist)
+            adv_optimizer.zero_grad()
+            dist.backward()
+            adv_optimizer.step()
+            img_x.data = tensor_clamp_l2(img_x.data, img_a.data, self.adv_epsilon)
+        print(
+            "||img_x - img_a||^2 = ", torch.sum((img_a - img_x) ** 2).item(), 
+            "d(img_x, img_a) = ", torch.mean(self.forward(img_x, image_copy)).item()
+        )
+        return img_x.data
+
+    # def generate_adv_example(self, image):
+    #     img_a = Variable(
+    #         image + ((torch.rand_like(image) - 0.5) * 1e-4),
+    #         requires_grad=False
+    #     )
+    #     img_x = Variable(image, requires_grad=True)
+    #     save_image(img_x, "/home/saurav/PerceptualSimilarity/img_x_{0}.png".format(0))
+    #     print("Initial difference between img_a and img_x = ", torch.sum((img_a - img_x) ** 2))
+    #     adv_optimizer = torch.optim.Adam([img_x], lr=1e-2)
+    #     for i in range(self.num_adv_iterations):
+    #         dist = self.forward(img_x, img_a)
+    #         dist = -1.0 * torch.mean(dist)
+    #         if i % 100 == 0 and i != 0:
+    #             save_image(img_x, "/home/saurav/PerceptualSimilarity/img_x_{0}.png".format(i))
+    #             print(dist)
+    #         adv_optimizer.zero_grad()
+    #         dist.backward()
+    #         adv_optimizer.step()
+    #         img_x.data = tensor_clamp_l2(img_x.data, img_a.data, self.adv_epsilon)
+    #         return img_x.data
+
     def forward_train(self): # run forward pass
         # print(self.net.module.scaling_layer.shift)
         # print(torch.norm(self.net.module.net.slice1[0].weight).item(), torch.norm(self.net.module.lin0.model[1].weight).item())
@@ -156,6 +216,28 @@ class DistModel(BaseModel):
         self.var_judge = Variable(1.*self.input_judge).view(self.d0.size())
 
         self.loss_total = self.rankLoss.forward(self.d0, self.d1, self.var_judge*2.-1.)
+
+        if self.adv_train:
+            # print("Generating adv example")
+            # ref_adversarial_example = self.adversary(
+            #     self.input_ref,
+            #     loss_function = lambda x: torch.mean(self.forward(x, self.var_ref))
+            # )
+            # dx = torch.mean(self.forward(
+            #     self.var_ref,
+            #     Variable(ref_adversarial_example, requires_grad=True)
+            # ))
+            # print(dx)
+            # print(self.loss_total)
+            # exit()
+
+            print("Generating adv example")
+            ref_adversarial_example = self.generate_adv_example(self.input_ref.clone())
+            adv_loss = self.forward(
+                self.input_ref, 
+                ref_adversarial_example
+            )
+            self.loss_total += torch.mean(adv_loss)
 
         return self.loss_total
 
@@ -282,3 +364,54 @@ def score_jnd_dataset(data_loader, func, name=''):
     score = util.voc_ap(recs,precs)
 
     return(score, dict(ds=ds,sames=sames))
+
+
+def tensor_clamp_l2(x, center, radius):
+    """batched clamp of x into l2 ball around center of given radius"""
+    x = x.data
+    diff = x - center
+    diff_norm = torch.norm(diff.view(diff.size(0), -1), p=2, dim=1)
+    project_select = diff_norm > radius
+    if project_select.any():
+        diff_norm = diff_norm.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        new_x = x
+        new_x[project_select] = (center + (diff / diff_norm) * radius)[project_select]
+        return new_x
+    else:
+        return x
+
+def normalize_l2(x):
+    """
+    Expects x.shape == [N, C, H, W]
+    """
+    norm = torch.norm(x.view(x.size(0), -1), p=2, dim=1)
+    norm = norm.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    return x / norm
+
+class PGD_l2(nn.Module):
+    def __init__(self, epsilon, num_steps, step_size):
+        super().__init__()
+        self.epsilon = epsilon
+        self.num_steps = num_steps
+        self.step_size = step_size
+
+    def forward(self, bx, loss_function):
+        """
+        :param model: the classifier's forward method
+        :param bx: batch of images
+        :param by: true labels
+        :return: perturbed batch of images
+        """
+        init_noise = normalize_l2(torch.randn(bx.size()).cuda()) * (np.random.rand() - 0.5) * self.epsilon
+        adv_bx = (bx + init_noise).clamp(-1, 1).requires_grad_()
+
+        for i in range(self.num_steps):
+            loss = loss_function(adv_bx)
+            if i % 100 == 0:
+                print("Iteration", i, "dist (aka loss) = ", loss)
+            grad = normalize_l2(torch.autograd.grad(loss, adv_bx, only_inputs=True)[0])
+            adv_bx = adv_bx + self.step_size * grad
+            adv_bx = tensor_clamp_l2(adv_bx, bx, self.epsilon).clamp(-1, 1)
+            adv_bx = adv_bx.data.requires_grad_()
+
+        return adv_bx.detach()

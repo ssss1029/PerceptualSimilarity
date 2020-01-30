@@ -34,8 +34,7 @@ img_x = transform(img_x)
 img_a = Image.open(img_path).convert('RGB')
 img_a = transform(img_a)
 
-# Torchify
-EPSILON = 5.0
+EPSILON = 10.0
 print(EPSILON)
 
 print(img_x.shape)
@@ -92,6 +91,45 @@ def main():
             plt.imsave('imgs_saved/%04d.jpg'%i,pred_img)
 
 
+# class PGD_l2(nn.Module):
+#     def __init__(self, epsilon, num_steps, step_size):
+#         super().__init__()
+#         self.epsilon = epsilon
+#         self.num_steps = num_steps
+#         self.step_size = step_size
+
+#     def forward(self, bx, loss_function):
+#         """
+#         :param model: the classifier's forward method
+#         :param bx: batch of images
+#         :param by: true labels
+#         :return: perturbed batch of images
+#         """
+#         init_noise = normalize_l2(torch.randn(bx.size()).cuda()) * (np.random.rand() - 0.5) * self.epsilon
+#         adv_bx = (bx + init_noise).clamp(-1, 1).requires_grad_()
+
+#         for i in range(self.num_steps):
+#             dist = -1.0 * loss_function(adv_bx)
+#             if i % 100 == 0:
+#                 print("Iteration", i, "dist = ", dist)
+#             grad = normalize_l2(torch.autograd.grad(loss, adv_bx, only_inputs=True)[0])
+#             adv_bx = adv_bx + self.step_size * grad
+#             adv_bx = tensor_clamp_l2(adv_bx, bx, self.epsilon).clamp(-1, 1)
+#             adv_bx = adv_bx.data.requires_grad_()
+
+#         return adv_bx
+
+# def main():
+    
+#     adversary = PGD_l2(
+#         EPSILON,
+#         num_steps=10000, 
+#         step_size=1e-2
+#     )
+
+#     adversary()
+
+
 def tensor_clamp_l2(x, center, radius):
     """batched clamp of x into l2 ball around center of given radius"""
     x = x.data
@@ -105,6 +143,5 @@ def tensor_clamp_l2(x, center, radius):
         return new_x
     else:
         return x
-
 
 main()
