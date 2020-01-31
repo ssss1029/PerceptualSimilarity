@@ -30,7 +30,7 @@ class DistModel(BaseModel):
     def initialize(self, model='net-lin', net='alex', colorspace='Lab', pnet_rand=False, pnet_tune=False, model_path=None,
             use_gpu=True, printNet=False, spatial=False, 
             is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0], 
-            adversarially_train=False, num_adv_iterations=201, adv_epsilon=10):
+            adversarially_train=False, num_adv_iterations=50, adv_epsilon=10):
         '''
         INPUTS
             model - ['net-lin'] for linearly calibrated network
@@ -166,7 +166,10 @@ class DistModel(BaseModel):
         )
         img_x = Variable(image, requires_grad=True)
         # save_image(img_x, "/home/saurav/PerceptualSimilarity/img_x_{0}.png".format(0))
-        print("Initial ||img_x - img_a||^2  = ", torch.sum((img_a - img_x) ** 2).item())
+        print(
+            "Initial ||img_x - img_a||^2  = ", torch.sum((img_a - img_x) ** 2).item(),
+            "d(img_x, img_a) = ", torch.mean(self.forward(img_x, img_a)).item()
+        )
         adv_optimizer = torch.optim.Adam([img_x], lr=1e-2)
         for i in range(self.num_adv_iterations):
             dist = self.forward(img_x, img_a)
@@ -179,7 +182,7 @@ class DistModel(BaseModel):
             adv_optimizer.step()
             img_x.data = tensor_clamp_l2(img_x.data, img_a.data, self.adv_epsilon)
         print(
-            "||img_x - img_a||^2 = ", torch.sum((img_a - img_x) ** 2).item(), 
+            "Final   ||img_x - img_a||^2 = ", torch.sum((img_a - img_x) ** 2).item(), 
             "d(img_x, img_a) = ", torch.mean(self.forward(img_x, image_copy)).item()
         )
         return img_x.data
@@ -231,7 +234,6 @@ class DistModel(BaseModel):
             # print(self.loss_total)
             # exit()
 
-            print("Generating adv example")
             ref_adversarial_example = self.generate_adv_example(self.input_ref.clone())
             adv_loss = self.forward(
                 self.input_ref, 

@@ -10,6 +10,7 @@ import models
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from PIL import Image
+from models import dist_model as dm
 
 
 """
@@ -20,6 +21,7 @@ Keep img_a fixed and max d(img_a, img_x) subject to ||a - x||^2 < EPSILON
 use_gpu = True
 
 img_path  = './dataset/2afc/val/cnn/ref/000002.png'
+model_path = 'checkpoints/lpips/latest_net_.pth'
 
 transform_list = [
     transforms.Scale(64),
@@ -51,9 +53,23 @@ print(img_a.shape)
 
 print("Initial difference between img_a and img_x = ", torch.sum((img_a - img_x) ** 2))
 
-
 num_iterations = 50
-loss_fn = models.PerceptualLoss(model='net-lin', net='vgg', use_gpu=use_gpu, version="0.1")
+
+# initialize model
+model = dm.DistModel()
+# model.initialize(model=opt.model,net=opt.net,colorspace=opt.colorspace,model_path=opt.model_path,use_gpu=opt.use_gpu)
+model.initialize(
+    model='net-lin', 
+    net='vgg', 
+    colorspace='RGB', 
+	model_path=model_path, 
+    use_gpu=True, 
+    pnet_rand=False, 
+    pnet_tune=False,
+	version='0.1', 
+    gpu_ids=[0]
+)
+
 # optimizer = torch.optim.SGD([img_x], lr=1e-2, momentum=0.9, nesterov=False)
 optimizer = torch.optim.Adam([img_x], lr=1e-2)
 # scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -63,17 +79,10 @@ optimizer = torch.optim.Adam([img_x], lr=1e-2)
 # )
 
 plt.ion()
-# fig = plt.figure(1)
-# ax = fig.add_subplot(131)
-# ax.imshow(ref_img.transpose(1, 2, 0))
-# ax.set_title('target')
-# ax = fig.add_subplot(133)
-# ax.imshow(pred_img.transpose(1, 2, 0))
-# ax.set_title('initialization')
 
 def main():
     for i in range(num_iterations):
-        dist = -1 * loss_fn.forward(img_x, img_a, normalize=True)
+        dist = -1 * model.forward(img_x, img_a)
         optimizer.zero_grad()
         dist.backward()
         optimizer.step()
@@ -89,45 +98,6 @@ def main():
             # ax.set_title('iter %d, dist %.3f' % (i, dist.view(-1).data.cpu().numpy()[0]))
             # plt.pause(5e-2)
             plt.imsave('imgs_saved/%04d.jpg'%i,pred_img)
-
-
-# class PGD_l2(nn.Module):
-#     def __init__(self, epsilon, num_steps, step_size):
-#         super().__init__()
-#         self.epsilon = epsilon
-#         self.num_steps = num_steps
-#         self.step_size = step_size
-
-#     def forward(self, bx, loss_function):
-#         """
-#         :param model: the classifier's forward method
-#         :param bx: batch of images
-#         :param by: true labels
-#         :return: perturbed batch of images
-#         """
-#         init_noise = normalize_l2(torch.randn(bx.size()).cuda()) * (np.random.rand() - 0.5) * self.epsilon
-#         adv_bx = (bx + init_noise).clamp(-1, 1).requires_grad_()
-
-#         for i in range(self.num_steps):
-#             dist = -1.0 * loss_function(adv_bx)
-#             if i % 100 == 0:
-#                 print("Iteration", i, "dist = ", dist)
-#             grad = normalize_l2(torch.autograd.grad(loss, adv_bx, only_inputs=True)[0])
-#             adv_bx = adv_bx + self.step_size * grad
-#             adv_bx = tensor_clamp_l2(adv_bx, bx, self.epsilon).clamp(-1, 1)
-#             adv_bx = adv_bx.data.requires_grad_()
-
-#         return adv_bx
-
-# def main():
-    
-#     adversary = PGD_l2(
-#         EPSILON,
-#         num_steps=10000, 
-#         step_size=1e-2
-#     )
-
-#     adversary()
 
 
 def tensor_clamp_l2(x, center, radius):
