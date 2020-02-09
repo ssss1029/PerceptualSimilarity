@@ -30,7 +30,7 @@ class DistModel(BaseModel):
     def initialize(self, model='net-lin', net='alex', colorspace='Lab', pnet_rand=False, pnet_tune=False, model_path=None,
             use_gpu=True, printNet=False, spatial=False, 
             is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0], 
-            adversarially_train=False, num_adv_iterations=50, adv_epsilon=10):
+            adversarially_train=False, num_adv_iterations=50, adv_epsilon=10, adv_lambda=0.3):
         '''
         INPUTS
             model - ['net-lin'] for linearly calibrated network
@@ -64,6 +64,7 @@ class DistModel(BaseModel):
         self.adv_train = adversarially_train
         self.num_adv_iterations = num_adv_iterations
         self.adv_epsilon = adv_epsilon
+        self.adv_lambda = adv_lambda
 
         self.adversary = PGD_l2(
             epsilon=adv_epsilon,
@@ -235,10 +236,12 @@ class DistModel(BaseModel):
             # exit()
 
             ref_adversarial_example = self.generate_adv_example(self.input_ref.clone())
-            adv_loss = self.forward(
+            adv_loss = self.adv_lambda * self.forward(
                 self.input_ref, 
                 ref_adversarial_example
             )
+
+            print("Original loss = {0}. Adv loss = {1}".format(self.loss_total.sum().item(), adv_loss.sum().item()))
             self.loss_total += torch.mean(adv_loss)
 
         return self.loss_total

@@ -45,7 +45,7 @@ if(not os.path.exists(opt.save_dir)):
 model = dm.DistModel()
 model.initialize(model=opt.model, net=opt.net, use_gpu=opt.use_gpu, is_train=True, 
     pnet_rand=opt.from_scratch, pnet_tune=opt.train_trunk, gpu_ids=opt.gpu_ids,
-    adversarially_train=True)
+    adversarially_train=True, num_adv_iterations=20, adv_epsilon=10, adv_lambda=0.2)
 
 # load data from all training sets
 data_loader = dl.CreateDataLoader(opt.datasets,dataset_mode='2afc', batch_size=opt.batch_size, serial_batches=False, nThreads=opt.nThreads)

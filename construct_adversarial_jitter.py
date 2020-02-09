@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from PIL import Image
 from models import dist_model as dm
-
+from scipy.ndimage.interpolation import rotate, shift, zoom
+import random
 
 """
 Given one image - make two copies (img_a and img_x)
@@ -20,15 +21,21 @@ Keep img_a fixed and max d(img_a, img_x) subject to ||a - x||^2 < EPSILON
 
 use_gpu = True
 
-img_path  = './dataset/2afc/val/cnn/ref/000778.png'
+img_path  = './dataset/2afc/val/cnn/ref/000777.png'
 # model_path = 'checkpoints/adv_lpips/latest_net_.pth'
 model_path = 'checkpoints/adv_lpips_20iterations_traintrunk_lambda0.2/latest_net_.pth'
+IMG_SIZE = 256
 
+
+def rand_jitter(temp):
+    temp = shift(temp, shift=(0, random.randint(-10, 10), random.randint(-10, 10)))
+    temp = rotate(temp, angle = np.random.randint(-10,10,1), axes=(1, 2), reshape=False)
+    return temp
 
 transform_list = [
-    transforms.Scale(256),
+    transforms.Scale(IMG_SIZE),
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
+    # transforms.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5))
 ]
 transform = transforms.Compose(transform_list)
 
@@ -38,7 +45,10 @@ img_x = transform(img_x)
 img_a = Image.open(img_path).convert('RGB')
 img_a = transform(img_a)
 
-EPSILON = 50.0
+img_x = rand_jitter(img_x)
+img_a = img_x.copy()
+
+EPSILON = 0.1
 print(EPSILON)
 
 print(img_x.shape)
@@ -55,7 +65,7 @@ print(img_a.shape)
 
 print("Initial difference between img_a and img_x = ", torch.sum((img_a - img_x) ** 2))
 
-num_iterations = 1000
+num_iterations = 400
 
 # initialize model
 model = dm.DistModel()
@@ -99,7 +109,7 @@ def main():
         dist.backward()
         optimizer.step()
         # scheduler.step()
-        img_x.data = tensor_clamp_l2(img_x.data, img_a.data, EPSILON)
+        img_x.data = tensor_clamp_l_infinity(img_x.data, img_a.data, EPSILON)
         
         if i % 100 == 0 or True:
             print('iter %d, dist %f' % (i, dist.view(-1).data.cpu().numpy()[0]))
@@ -126,5 +136,8 @@ def tensor_clamp_l2(x, center, radius):
         return new_x
     else:
         return x
+
+def tensor_clamp_l_infinity(x, center, radius):
+    return torch.min(torch.max(x, center - radius), center + radius).clamp(0, 1)
 
 main()
