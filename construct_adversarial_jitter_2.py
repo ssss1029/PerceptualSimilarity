@@ -36,8 +36,8 @@ os.makedirs(args.save_dir, exist_ok=True)
 use_gpu = True
 
 img_path  = 'house.png'
-# model_path = 'checkpoints/lpips/latest_net_.pth'
-model_path = 'checkpoints/adv_lpips/latest_net_.pth'
+model_path = 'checkpoints/lpips/latest_net_.pth'
+# model_path = 'checkpoints/adv_lpips/latest_net_.pth'
 # model_path = 'checkpoints/adv_lpips_20iterations_traintrunk_lambda0.2/latest_net_.pth'
 IMG_SIZE = 320
 
